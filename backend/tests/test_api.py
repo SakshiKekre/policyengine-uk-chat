@@ -186,6 +186,14 @@ def parse_sse(response_text: str) -> list[dict]:
 
 
 class TestChatMessage:
+    def test_unknown_model_backend_returns_400(self):
+        r = client.post("/chat/message", json={
+            "messages": [{"role": "user", "content": "hello"}],
+            "model_backend": "not_a_backend",
+        })
+        assert r.status_code == 400
+        assert "Unknown model backend" in r.json()["error"]
+
     def test_simple_chat_returns_sse(self):
         with client.stream("POST", "/chat/message", json={
             "messages": [{"role": "user", "content": "Say exactly: hello"}],

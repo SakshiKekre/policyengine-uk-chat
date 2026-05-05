@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Loader } from "@mantine/core";
-import { IconX, IconTrash, IconChevronDown, IconUser, IconLogout, IconShare, IconBug } from "@tabler/icons-react";
+import { IconX, IconTrash, IconChevronDown, IconUser, IconLogout, IconShare, IconBug, IconBulb } from "@tabler/icons-react";
 import { useAuth } from "@/utils/AuthContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -196,6 +196,7 @@ export default function ChatPage() {
   const [selectedBackendId, setSelectedBackendId] = useState("uk_compiled");
   const [balance, setBalance] = useState<BalanceSummary | null>(null);
   const [topUpLoading, setTopUpLoading] = useState(false);
+  const [planMode, setPlanMode] = useState(false);
   const hasMessages = messages.length > 0;
   const animatedPlaceholder = useAnimatedPlaceholder(EXAMPLE_QUERIES, !hasMessages && !input);
   const selectedBackend = modelBackends.find((backend) => backend.id === selectedBackendId);
@@ -387,6 +388,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMessage]);
     if (messages.length === 0 && user) setHistoryOpen(true);
     setInput("");
+    setPlanMode(false);
     setIsStreaming(true);
     setIsWaiting(true);
     debugLog.current = [];
@@ -453,7 +455,13 @@ export default function ChatPage() {
       const response = await fetch(getBackendEndpoint("chat/message"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages, session_id: sessionId.current, user_id: user?.id || null, model_backend: selectedBackendId }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          session_id: sessionId.current,
+          user_id: user?.id || null,
+          model_backend: selectedBackendId,
+          plan_mode: planMode,
+        }),
         signal: controller.signal,
       });
       if (response.status === 402) {
@@ -1019,7 +1027,34 @@ export default function ChatPage() {
               </div>
             </div>
             <div style={{ marginTop: "14px", color: "#b5b1a9", fontSize: "12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-              {!hasMessages ? <span>Press Enter to send · Shift+Enter for new line</span> : <span />}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => setPlanMode((value) => !value)}
+                  disabled={isStreaming}
+                  title={planMode
+                    ? "Plan mode on - the next message will get clarifying questions before the agent runs anything."
+                    : "Plan mode off - turn on to have the agent ask 1-3 clarifying questions before answering."}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "4px 10px",
+                    background: planMode ? THEME.primary : "transparent",
+                    color: planMode ? "#fff" : "#6b7280",
+                    border: `1px solid ${planMode ? THEME.primary : "#e5e7eb"}`,
+                    fontSize: "11px",
+                    fontFamily: "inherit",
+                    cursor: isStreaming ? "not-allowed" : "pointer",
+                    fontWeight: 500,
+                    opacity: isStreaming ? 0.5 : 1,
+                    transition: "background 120ms, color 120ms, border-color 120ms",
+                  }}
+                >
+                  <IconBulb size={12} /> Plan mode {planMode ? "on" : "off"}
+                </button>
+                {!hasMessages && <span>Press Enter to send · Shift+Enter for new line</span>}
+              </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
                 {modelBackends.length > 1 && (
                   <div style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "#b5b1a9", fontSize: "11px" }}>

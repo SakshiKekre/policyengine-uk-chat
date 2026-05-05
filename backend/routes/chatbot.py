@@ -142,6 +142,23 @@ def _select_chat_model(messages: List[dict]) -> str:
     return DEFAULT_FAST_MODEL
 
 
+PLAN_MODE_DIRECTIVE = """
+PLAN MODE IS ACTIVE FOR THIS TURN:
+- Do NOT call any tools.
+- Identify 1-3 specific ambiguities in the user's question (e.g. which year, dataset, reform parameters, metric, comparison baseline, population subset).
+- Ask those 1-3 questions concisely as a numbered list. No preamble beyond one short lead-in sentence.
+- If the question is fully unambiguous, confirm your understanding in one sentence and offer to proceed - still do not call tools.
+- You will continue without plan mode on the next turn once the user replies.
+""".strip()
+
+
+def _system_prompt_for_turn(backend_id: str, plan_mode: bool = False) -> str:
+    system_prompt = _build_system_prompt(backend_id)
+    if plan_mode:
+        return f"{system_prompt}\n\n{PLAN_MODE_DIRECTIVE}"
+    return system_prompt
+
+
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -156,6 +173,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     user_id: str | None = None
     model_backend: str | None = None
+    plan_mode: bool = False
 
 
 class TitleRequest(BaseModel):
@@ -232,6 +250,23 @@ async def chat_message(request: ChatRequest, http_request: Request):
         else:
             deduplicated[-1]["content"] += "\n\n" + msg["content"]
 
+    if os.environ.get("POLICYENGINE_CHAT_AGENT_RUNNER") == "claude_sdk":
+        from claude_agent_sdk_runner import generate_claude_agent_sdk_stream
+
+        return StreamingResponse(
+            generate_claude_agent_sdk_stream(
+                conversation=deduplicated.copy(),
+                system_prompt=_system_prompt_for_turn(backend.id, request.plan_mode),
+                plan_mode=request.plan_mode,
+                session_id=session_id,
+                user_id=user_id,
+                backend_id=backend.id,
+                model=_select_chat_model(deduplicated),
+            ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     async def generate_stream():
         try:
             conversation = deduplicated.copy()
@@ -245,11 +280,12 @@ async def chat_message(request: ChatRequest, http_request: Request):
 
             client = _get_anthropic_client()
             model = _select_chat_model(conversation)
-            system_prompt = _build_system_prompt(backend.id)
+            system_prompt = _system_prompt_for_turn(backend.id, request.plan_mode)
             tools = _tool_defs_for_anthropic(backend.id)
 
             logger.info(
                 f"[CHAT] Session {session_id}: {len(conversation)} messages, backend={backend.id}"
+                f"{' [PLAN MODE]' if request.plan_mode else ''}"
             )
 
             while iteration < max_iterations:
